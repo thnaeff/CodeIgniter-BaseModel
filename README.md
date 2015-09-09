@@ -15,9 +15,9 @@ This model offers additional functionality to the [CodeIgniter-CRUDModel](https:
 -----------
 
 
-## Installation
+## Installation and implementation
 
-
+The installation and implementation is the same as it is for the [CRUDModel](https://github.com/thnaeff/CodeIgniter-CRUDModel). Simply add this `BaseModel.php` file to your CodeIgniter project (preferably in the models directory application/models/), extend it in order to create your table models and configure your CodeIgniter database model. This should already be it to use the get/insert/update/delete functions. The table name guessing functionality of this `BaseModel.php` helps to link this model directly to its table.
 
 -------------
 
