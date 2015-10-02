@@ -165,20 +165,29 @@ class BaseModel extends CRUDModel {
 	 * (non-PHPdoc)
 	 * @see CRUDModel::delete()
 	 */
-	public function delete($primary_values = null) {
-		$get_result = $this->with_deleted()->get($primary_values);
+	public function delete($primary_values = null, $rows = null) {
 
-		//The get-call resets this database model, which removes any previous select/where/etc. calls.
-		//Since we have the primary keys now, use them for further processing
+		$rows_to_delete = null;
+		if (! empty($this->cascade_delete)) {
+			//For the cascade delete, the primary values are needed.
+			//Since an external where statement might have been defined (in addition to provided primary values)
+			//for this delete, the primary values have to be retrieved first.
+			$this->set_where($this->primary_key, $primary_values);
+			$this->database->select([$this->primary_key, $this->sort_order_field]);
+			$rows_to_delete = $this->database->get($this->_table)->result_array();
 
-		$primary_values = array();
-		foreach ($get_result as $result) {
-			$primary_values[] = $result[$this->primary_key];
+			//All primary values
+			$primary_values = array();
+			foreach ($rows_to_delete as $result) {
+				$primary_values[] = $result[$this->primary_key];
+			}
 		}
 
 
 		if ($this->soft_delete_field != NULL) {
-			//Soft-delete (mark record as deleted)
+			//Soft-delete (mark record (update) as deleted instead of deleting the record)
+
+			$primary_values = $this->primary_values_from_rows($rows, $primary_values);
 
 			$primary_values = $this->trigger('before_delete', $primary_values);
 			if ($primary_values === FALSE) {
@@ -194,7 +203,7 @@ class BaseModel extends CRUDModel {
 
 			$this->trigger('after_delete', array($primary_values, $result));
 
-			$this->cascade_delete_undelete($get_result, true);
+			$this->cascade_delete_undelete($rows_to_delete, true);
 
 			return $result;
 		} else if ($this->sort_order_field != NULL) {
@@ -202,13 +211,6 @@ class BaseModel extends CRUDModel {
 			//of the remaining rows.
 
 			$this->database->trans_start();
-
-			//To individually delete the records, the primary values are needed.
-			//Since an external where statement might have been defined (in addition to provided primary values)
-			//for this delete, the primary values have to be retrieved first.
-			$this->set_where($this->primary_key, $primary_values);
-			$this->database->select([$this->primary_key, $this->sort_order_field]);
-			$rows_to_delete = $this->database->get($this->_table)->result_array();
 
 			//Update all sort orders and delete the records
 			foreach ($rows_to_delete as $row) {
@@ -222,7 +224,7 @@ class BaseModel extends CRUDModel {
 
 				//Delete
 				parent::delete($primary_value);
-				$this->cascade_delete_undelete($get_result, true);
+				$this->cascade_delete_undelete($rows_to_delete, true);
 			}
 
 			$this->database->trans_complete();
@@ -231,7 +233,7 @@ class BaseModel extends CRUDModel {
 			//Delete record
 
 			$ret = parent::delete($primary_values);
-			$this->cascade_delete_undelete($get_result, true);
+			$this->cascade_delete_undelete($rows_to_delete, true);
 			return $ret;
 		}
 	}
@@ -246,22 +248,32 @@ class BaseModel extends CRUDModel {
 	 *
 	 *
 	 * @param string $primary_values
+	 * @param array $rows
 	 * @return
 	 */
-	public function undelete($primary_values = null) {
-		$get_result = $this->with_deleted()->get($primary_values);
+	public function undelete($primary_values = null, $rows = null) {
 
-		//The get-call resets this database model, which removes any previous select/where/etc. calls.
-		//Since we have the primary keys now, use them for further processing
+		$rows_to_delete = null;
+		if (! empty($this->cascade_delete)) {
+			//For the cascade delete, the primary values are needed.
+			//Since an external where statement might have been defined (in addition to provided primary values)
+			//for this delete, the primary values have to be retrieved first.
+			$this->set_where($this->primary_key, $primary_values);
+			$this->database->select([$this->primary_key, $this->sort_order_field]);
+			$rows_to_delete = $this->database->get($this->_table)->result_array();
 
-		$primary_values = array();
-		foreach ($get_result as $result) {
-			$primary_values[] = $result[$this->primary_key];
+			//All primary values
+			$primary_values = array();
+			foreach ($rows_to_delete as $result) {
+				$primary_values[] = $result[$this->primary_key];
+			}
 		}
 
 
 		if ($this->soft_delete_field != NULL) {
-			//Soft-delete (mark record as deleted)
+			//Soft-delete (mark record (update) as deleted instead of deleting the record)
+
+			$primary_values = $this->primary_values_from_rows($rows, $primary_values);
 
 			$primary_values = $this->trigger('before_undelete', $primary_values);
 			if ($primary_values === FALSE) {
@@ -277,11 +289,30 @@ class BaseModel extends CRUDModel {
 
 			$this->trigger('after_undelete', array($primary_values, $result));
 
-			$this->cascade_delete_undelete($get_result, false);
+			$this->cascade_delete_undelete($rows_to_delete, false);
 
 			return $result;
 		}
 	}
+
+	/**
+	 * Performs an update with only the changed values.
+	 *
+	 * @param array $oldRows
+	 * @param array $newRows
+	 * @return array The row values which have been used for the update
+	 */
+	public function save($oldRows, $newRows) {
+
+		//Only update changed fields
+		$dataToSave = array_diff_assoc($newRows, $oldRows);
+
+		$this->update($dataToSave);
+
+		return $dataToSave;
+	}
+
+
 
 	/*----------------------------------------------------------------------------------------
 	 * Useful database functions
@@ -580,7 +611,7 @@ class BaseModel extends CRUDModel {
 
 			//Loads the model with a special name so that "self" relationships are possible
 			//(a model can have a relationship to itself)
-			$this->load->model($model_name, $model_name . '_related');
+			$model = $this->load_related_model($model_name);
 
 			//Array of [local_key=>foreign_key(s)] or simply [foreign_key(s)]
 			$related_keys = $options['related_keys'];
@@ -590,9 +621,9 @@ class BaseModel extends CRUDModel {
 				$this->related_or_where($row, $with_table, $model_name, $related_keys);
 
 				if ($delete_undelete) {
-					$this->{$model_name . '_related'}->delete();
+					$model->delete();
 				} else {
-					$this->{$model_name . '_related'}->undelete();
+					$model->undelete();
 				}
 
 			}
