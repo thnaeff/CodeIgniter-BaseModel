@@ -62,7 +62,6 @@ class BaseModel extends CRUDModel {
 	protected $cascade_delete = array();
 
 
-
 	/**
 	 *
 	 *
@@ -175,6 +174,7 @@ class BaseModel extends CRUDModel {
 			$this->set_where($this->primary_key, $primary_values);
 			$this->database->select([$this->primary_key, $this->sort_order_field]);
 			$rows_to_delete = $this->database->get($this->_table)->result_array();
+			$this->save_query();
 
 			//All primary values
 			$primary_values = array();
@@ -199,6 +199,7 @@ class BaseModel extends CRUDModel {
 			$this->set_where($this->primary_key, $primary_values);
 
 			$result = $this->database->update($this->_table, array($this->soft_delete_field=>TRUE));
+			$this->save_query();
 			$this->reset();
 
 			$this->trigger('after_delete', array($primary_values, $result));
@@ -221,6 +222,7 @@ class BaseModel extends CRUDModel {
 				$this->database->set($this->sort_order_field, $this->sort_order_field . ' - 1', false);
 				$this->database->where($this->sort_order_field . ' >', $sort_order);
 				$this->database->update($this->_table);
+				$this->save_query();
 
 				//Delete
 				parent::delete($primary_value);
@@ -261,6 +263,7 @@ class BaseModel extends CRUDModel {
 			$this->set_where($this->primary_key, $primary_values);
 			$this->database->select([$this->primary_key, $this->sort_order_field]);
 			$rows_to_delete = $this->database->get($this->_table)->result_array();
+			$this->save_query();
 
 			//All primary values
 			$primary_values = array();
@@ -285,6 +288,7 @@ class BaseModel extends CRUDModel {
 			$this->set_where($this->primary_key, $primary_values);
 
 			$result = $this->database->update($this->_table, array($this->soft_delete_field=>FALSE));
+			$this->save_query();
 			$this->reset();
 
 			$this->trigger('after_undelete', array($primary_values, $result));
@@ -439,6 +443,7 @@ class BaseModel extends CRUDModel {
 		$this->database->select($this->sort_order_field);
 		$this->database->where($this->primary_key, $primary_key);
 		$query = $this->database->get($this->_table);
+		$this->save_query();
 
 		if ($query->num_rows() == 0) {
 			return false;
@@ -462,6 +467,7 @@ class BaseModel extends CRUDModel {
 		//Descending order so that the highest sort order is returned (the one above it)
 		$this->database->order_by($this->sort_order_field . ' DESC');
 		$row = $this->database->get($this->_table)->row_array();
+		$this->save_query();
 
 		if ($row == NULL) {
 			//Can't go up further
@@ -476,11 +482,13 @@ class BaseModel extends CRUDModel {
 		$this->database->where($this->sort_order_field . ' >=', $previousRowSortOrder);
 		$this->database->where($this->sort_order_field . ' <', $sort_order);
 		$this->database->update($this->_table);
+		$this->save_query();
 
 		//Set the sort order of the moving row to the sort order of the previous row
 		$this->database->set($this->sort_order_field, $previousRowSortOrder);
 		$this->database->where($this->primary_key, $primary_key);
 		$this->database->update($this->_table);
+		$this->save_query();
 
 		$this->database->trans_complete();
 
@@ -506,6 +514,7 @@ class BaseModel extends CRUDModel {
 		$this->database->select($this->sort_order_field);
 		$this->database->where($this->primary_key, $primary_key);
 		$query = $this->database->get($this->_table);
+		$this->save_query();
 
 		if ($query->num_rows() == 0) {
 			return false;
@@ -516,6 +525,7 @@ class BaseModel extends CRUDModel {
 		//Get the max sort order
 		$this->database->select_max($this->sort_order_field, 'max_sort_order');
 		$query = $this->database->get($this->_table);
+		$this->save_query();
 
 		$max_sort_order = $query->row_array()['max_sort_order'];
 
@@ -535,6 +545,7 @@ class BaseModel extends CRUDModel {
 		//Ascending order so that the lowest sort order of the following rows is returned (the one below it)
 		$this->database->order_by($this->sort_order_field . ' ASC');
 		$row = $this->database->get($this->_table)->row_array();
+		$this->save_query();
 
 		if ($row == NULL) {
 			//Can't go down further
@@ -549,11 +560,13 @@ class BaseModel extends CRUDModel {
 		$this->database->where($this->sort_order_field . ' >', $sort_order);
 		$this->database->where($this->sort_order_field . ' <=', $followingRowSortOrder);
 		$this->database->update($this->_table);
+		$this->save_query();
 
 		//Set the sort order of the moving row to the sort order of the following row
 		$this->database->set($this->sort_order_field, $followingRowSortOrder);
 		$this->database->where($this->primary_key, $primary_key);
 		$this->database->update($this->_table);
+		$this->save_query();
 
 		$this->database->trans_complete();
 
