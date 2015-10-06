@@ -165,9 +165,10 @@ class BaseModel extends CRUDModel {
 	 * @see CRUDModel::delete()
 	 */
 	public function delete($primary_values = null, $rows = null) {
+		$primary_values = $this->primary_values_from_rows($rows, $primary_values);
 
 		$rows_to_delete = null;
-		if (! empty($this->cascade_delete)) {
+		if (count($this->cascade_delete) > 0) {
 			//For the cascade delete, the primary values are needed.
 			//Since an external where statement might have been defined (in addition to provided primary values)
 			//for this delete, the primary values have to be retrieved first.
@@ -186,8 +187,6 @@ class BaseModel extends CRUDModel {
 
 		if ($this->soft_delete_field != NULL) {
 			//Soft-delete (mark record (update) as deleted instead of deleting the record)
-
-			$primary_values = $this->primary_values_from_rows($rows, $primary_values);
 
 			$primary_values = $this->trigger('before_delete', $primary_values);
 			if ($primary_values === FALSE) {
@@ -629,17 +628,18 @@ class BaseModel extends CRUDModel {
 			//Array of [local_key=>foreign_key(s)] or simply [foreign_key(s)]
 			$related_keys = $options['related_keys'];
 
-			//Retrieve the related data for each row one by one
+			//Modify the related data for each row one by one
 			foreach ($rows as $row_key=>$row) {
 				$this->related_or_where($row, $with_table, $model_name, $related_keys);
-
-				if ($delete_undelete) {
-					$model->delete();
-				} else {
-					$model->undelete();
-				}
-
 			}
+
+			if ($delete_undelete) {
+				$model->delete();
+			} else {
+				$model->undelete();
+			}
+
+			$this->save_related_query($model_name . '_related');
 		}
 
 	}
