@@ -299,7 +299,8 @@ class BaseModel extends CRUDModel {
 	}
 
 	/**
-	 * Performs an update with only the changed values.
+	 * Performs an update with only the changed values (all values in newRows which
+	 * do not exist in oldRows).
 	 *
 	 * @param array $oldRows
 	 * @param array $newRows
@@ -308,7 +309,7 @@ class BaseModel extends CRUDModel {
 	public function save($oldRows, $newRows) {
 
 		//Only update changed fields
-		$dataToSave = array_diff_assoc($newRows, $oldRows);
+		$dataToSave = self::array_diff_assoc_recursive($newRows, $oldRows);
 
 		$this->update($dataToSave);
 
@@ -644,7 +645,35 @@ class BaseModel extends CRUDModel {
 
 	}
 
+	/*----------------------------------------------------------------------------------------
+	 * Tools
+	 */
 
+	/**
+	 * Associative array diff<br />
+	 * From http://php.net/manual/en/function.array-diff-assoc.php#111675
+	 *
+	 * @param array $array1 The array to compare from
+	 * @param array $array2 The array to compare against
+	 * @return Returns an array containing all the values from array1 that are not present in the second array.
+	 */
+	public static function array_diff_assoc_recursive($array1, $array2) {
+		$difference=array();
+		foreach($array1 as $key => $value) {
+			if( is_array($value) ) {
+				if( !isset($array2[$key]) || !is_array($array2[$key]) ) {
+					$difference[$key] = $value;
+				} else {
+					$new_diff = self::array_diff_assoc_recursive($value, $array2[$key]);
+					if( !empty($new_diff) )
+						$difference[$key] = $new_diff;
+				}
+			} else if( !array_key_exists($key,$array2) || $array2[$key] !== $value ) {
+				$difference[$key] = $value;
+			}
+		}
+		return $difference;
+	}
 
 }
 
