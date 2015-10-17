@@ -309,13 +309,23 @@ class BaseModel extends CRUDModel {
 	public function save($oldRows, $newRows) {
 
 		//Only update changed fields
-		$dataToSave = self::array_diff_assoc_recursive($newRows, $oldRows);
+		$dataToSave = $this->getChanges($newRows, $oldRows);
 
 		$this->update($dataToSave);
 
 		return $dataToSave;
 	}
 
+	/**
+	 * Computes the changes between the old data and the new data
+	 *
+	 * @param array $oldRows
+	 * @param array $newRows
+	 * @return Returns An array of the difference between the two arrays
+	 */
+	public function getChanges($oldRows, $newRows) {
+		return self::array_diff_assoc_recursive($newRows, $oldRows);
+	}
 
 
 	/*----------------------------------------------------------------------------------------
