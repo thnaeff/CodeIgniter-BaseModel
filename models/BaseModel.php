@@ -13,6 +13,7 @@ defined('BASEPATH') or exit('No direct script access allowed');
  * - Checking for the existence of a row<br />
  * - Retrieving date range<br />
  * - Toggle<br />
+ * - Pagination support
  * - <br />
  * - <br />
  * <br />
@@ -39,6 +40,12 @@ class BaseModel extends CRUDModel {
 	private $_temporary_only_deleted = FALSE;
 
 	/**
+	 * If set to TRUE and soft delete is activated (soft_delete_field is set to a value),
+	 * soft delete is ignored and the record is deleted from the database
+	 */
+	private $_temporary_hard_delete = FALSE;
+
+	/**
 	 * The field/column name of the category index. If set to NULL, categories are not used.
 	 */
 	protected $category_field = NULL;
@@ -60,6 +67,11 @@ class BaseModel extends CRUDModel {
 	 * related data (instead of retrieving it).
 	 */
 	protected $cascade_delete = array();
+
+	protected $records_per_page = 0;
+
+	private $_current_page = 0;
+	private $_number_of_pages = 0;
 
 
 	/**
@@ -93,6 +105,7 @@ class BaseModel extends CRUDModel {
 		$this->_temporary_with_deleted = FALSE;
 		$this->_temporary_only_deleted = FALSE;
 		$this->_temporary_category_id = NULL;
+		$this->_temporary_hard_delete = FALSE;
 	}
 
 	/**
@@ -117,18 +130,77 @@ class BaseModel extends CRUDModel {
 		return $this;
 	}
 
+	/**
+	 * Ignores the soft-delete (if activated) and deletes the record from the database
+	 *
+	 * @return BaseModel
+	 */
+	public function hard_delete() {
+		$this->_temporary_hard_delete = true;
+		return $this;
+	}
+
+	/**
+	 * Activates pagination and sets the number of records per page. To deactivate pagination,
+	 * set this value to 0.
+	 *
+	 * @param int $record_count
+	 */
+	public function pagination($recordCount) {
+		if ($recordCount < 0) {
+			$recordCount = 0;
+		}
+
+		$this->records_per_page = $recordCount;
+	}
+
+	/**
+	 * If pagination is activated, this method sets the current page.
+	 *
+	 * @param int $page
+	 */
+	public function setPage($page) {
+		if ($page <= 0) {
+			$page = 1;
+		} else if ($page > $this->_number_of_pages) {
+			$currentPage = $this->_number_of_pages;
+		}
+
+		$this->_current_page = $page;
+	}
+
+	/**
+	 * Returns the current page if pagination is activated
+	 *
+	 * @return number|int
+	 */
+	public function getPage() {
+		return $this->_current_page;
+	}
+
+	/**
+	 * Returns the number of pages if pagination is activated. The number of pages
+	 * is only accurate after a get() call, because it applies to the database
+	 * query.
+	 *
+	 * @return number|int
+	 */
+	public function getPagesCount() {
+		return $this->_number_of_pages;
+	}
+
 	/*----------------------------------------------------------------------------------------
 	 * CRUD Function overrides
 	 *
 	 */
 
 	/**
-	 * Override
 	 *
-	 * (non-PHPdoc)
+	 *
+	 * {@inheritDoc}
 	 * @see CRUDModel::get()
 	 */
-	public function get($primary_values = NULL) {
+	public function get($primary_values = NULL, $limit=0, $offset=0) {
 
 		$this->filter_soft_delete();
 		$this->filter_category();
@@ -138,7 +210,31 @@ class BaseModel extends CRUDModel {
 			$this->database->order_by($this->sort_order_field);
 		}
 
-		return parent::get($primary_values);
+		$result = null;
+
+		//Pagination?
+		if ($this->records_per_page > 0) {
+			//Number of records, starting at current offset
+			$result = parent::get($primary_values, $this->records_per_page, ($this->_current_page - 1) * $this->records_per_page);
+
+			if ($this->get_total_records() > $this->records_per_page) {
+				$this->_number_of_pages = ceil($this->get_total_records() / $this->records_per_page);
+
+				//Makes sure the current page does not exceed the highest page
+				if ($this->_current_page > $this->_number_of_pages) {
+					$this->_current_page = $this->_number_of_pages;
+				}
+			}
+		} else {
+			$result = parent::get($primary_values);
+
+			$this->_number_of_pages = 1;
+			$this->_current_page = 1;
+			$this->records_per_page = $this->get_total_records();
+		}
+
+
+		return $result;
 	}
 
 	/**
@@ -154,7 +250,7 @@ class BaseModel extends CRUDModel {
 			$this->database->set($this->sort_order_field, '(SELECT IFNULL(MAX(t.' . $this->sort_order_field . '), 0) + 1 FROM ' . $this->_table . ' as t)', FALSE);
 		}
 
-		parent::insert($data);
+		return parent::insert($data);
 
 	}
 
@@ -185,7 +281,7 @@ class BaseModel extends CRUDModel {
 		}
 
 
-		if ($this->soft_delete_field != NULL) {
+		if ($this->soft_delete_field != NULL && ! $this->_temporary_hard_delete) {
 			//Soft-delete (mark record (update) as deleted instead of deleting the record)
 
 			$primary_values = $this->trigger('before_delete', $primary_values);
@@ -211,6 +307,7 @@ class BaseModel extends CRUDModel {
 			//of the remaining rows.
 
 			$this->database->trans_start();
+			$result = array();
 
 			//Update all sort orders and delete the records
 			foreach ($rows_to_delete as $row) {
@@ -224,12 +321,12 @@ class BaseModel extends CRUDModel {
 				$this->save_query();
 
 				//Delete
-				parent::delete($primary_value);
+				$result[] = parent::delete($primary_value);
 				$this->cascade_delete_undelete($rows_to_delete, true);
 			}
 
 			$this->database->trans_complete();
-
+			return $result;
 		} else {
 			//Delete record
 
@@ -317,13 +414,15 @@ class BaseModel extends CRUDModel {
 	}
 
 	/**
-	 * Computes the changes between the old data and the new data
+	 * Computes the changes between the old data and the new data. The returned
+	 * array contains the values of the new row which differ from the value
+	 * of the old rows.
 	 *
 	 * @param array $oldRows
 	 * @param array $newRows
 	 * @return Returns An array of the difference between the two arrays
 	 */
-	public function getChanges($oldRows, $newRows) {
+	public static function getChanges($newRows, $oldRows) {
 		return self::array_diff_assoc_recursive($newRows, $oldRows);
 	}
 
